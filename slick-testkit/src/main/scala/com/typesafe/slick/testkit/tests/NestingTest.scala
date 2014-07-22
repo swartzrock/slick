@@ -6,6 +6,8 @@ import com.typesafe.slick.testkit.util.{RelationalTestDB, TestkitTest}
 class NestingTest extends TestkitTest[RelationalTestDB] {
   import tdb.profile.simple._
 
+  override val reuseInstance = true
+
   def testNestedTuples {
     import TupleMethods._
 
@@ -61,5 +63,75 @@ class NestingTest extends TestkitTest[RelationalTestDB] {
       (a, b, c) <- ts.filter(_.a === 1).map(t => (t.a, t.b, 4)) unionAll ts.filter(_.a === 2).map(t => (t.a, t.b, 5))
     } yield a ~ b ~ (c*2)
     assertEquals(res2, q2c.run.toSet)
+  }
+
+  def testNestedOptions {
+    class X(tag: Tag) extends Table[(Int, String, Option[String])](tag, "X_OPT") {
+      def a = column[Int]("A")
+      def b = column[String]("B")
+      def c = column[Option[String]]("C")
+      def * = (a, b, c)
+    }
+    val xs = TableQuery[X]
+
+    xs.ddl.create
+    xs ++= Seq((1, "1", Some("a")), (2, "2", Some("b")), (3, "3", None))
+
+    implicitly[Shape[_, Rep[Int], _, _]]
+    implicitly[Shape[_, Rep[Option[Int]], _, _]]
+    implicitly[Shape[_, Rep[Option[Option[Int]]], _, _]]
+
+    implicitly[Shape[_, Rep[Option[(Rep[Int], Rep[String])]], _, _]]
+
+    implicitly[Shape[_, Rep[Option[X]], _, _]]
+
+    // Construct all different kinds of Options
+    def q1 = xs.map(t => Rep.Some(t))
+    def q2 = xs.map(t => Rep.Some(t.a))
+    def q3 = xs.map(t => t.c)
+    def q4 = xs.map(t => Rep.Some(t.c))
+    def q5 = xs.map(t => (t.c, Rep.Some(t.b)))
+
+    def q1t: Query[Rep[Option[X]], _, Seq] = q1
+    def q2t: Query[Rep[Option[Int]], _, Seq] = q2
+    def q3t: Query[Rep[Option[String]], _, Seq] = q3
+    def q4t: Query[Rep[Option[Option[String]]], _, Seq] = q4
+    def q5t: Query[(Rep[Option[String]], Rep[Option[String]]), _, Seq] = q5
+
+    // Get plain values out
+    def q1b = q1.map(_.map(x => (x.a, x.b, x.c)).getOrElse((0, "", None: Option[String])))
+    def q2b = q2.map(_.get)
+    def q3b = q3.map(_.get)
+    def q4b = q4.map(_.getOrElse(None: Option[String]))
+
+    def q1bt: Query[(Rep[Int], Rep[String], Rep[Option[String]]), _, Seq] = q1b
+    def q2bt: Query[Rep[Int], _, Seq] = q2b
+    def q3bt: Query[Rep[String], _, Seq] = q3b
+    def q4bt: Query[Rep[Option[String]], _, Seq] = q4b
+
+    // Unpack result types
+    def r2b: Seq[Int] = q2b.run
+    def r3b: Seq[String] = q3b.run
+
+    // Perform Option-mapped operations
+    def q2c = q2.map(io => io + 42)
+    def q3c = q3.map(so => so ++ "x")
+
+    // Use Option.map
+    def q1d = q1.map(_.map(_.a))
+    def q1d2 = q1.map(_.map(x => (x.a, x.b, x.c)))
+    def q2d = q2.map { io: Rep[Option[Int]] =>
+      io.map { i: Rep[Int] =>
+        i + 1
+      }
+    }
+    def q3d = q3.map(_.map(s => (s, s, 1)))
+    def q4d = q4.map(_.map(_.get))
+
+    def q1dt: Query[Rep[Option[Int]], _, Seq] = q1d
+    def q1d2t: Query[Rep[Option[(Rep[Int], Rep[String], Rep[Option[String]])]], _, Seq] = q1d2
+    def q2dt: Query[Rep[Option[Int]], _, Seq] = q2d
+    def q3dt: Query[Rep[Option[(Rep[String], Rep[String], ConstColumn[Int])]], _, Seq] = q3d
+    def q4dt: Query[Rep[Option[String]], _, Seq] = q4d
   }
 }

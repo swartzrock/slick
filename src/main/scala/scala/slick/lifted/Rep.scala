@@ -29,26 +29,29 @@ trait Rep[T] {
   override def toString = s"Rep($toNode)"
 }
 
-object Rep extends RepColumnShapeImplicits {
+object Rep {
   def forNode[T : TypedType](n: Node): Rep[T] = new TypedRep[T] { def toNode = n }
+  def forNodeUntyped[T](n: Node): Rep[T] = new UntypedRep[T] { def toNode = n }
 
   abstract class TypedRep[T](implicit final val tpe: TypedType[T]) extends Rep[T] with Typed {
     def encodeRef(path: List[Symbol]): Rep[T] = forNode(Path(path))
   }
+
+  abstract class UntypedRep[T] extends Rep[T] {
+    def encodeRef(path: List[Symbol]): Rep[T] = forNodeUntyped(Path(path))
+  }
+
+  def Some[M, O](v: M)(implicit od: OptionLift[M, O]): O =
+    ??? //TODO
+
+  def None[T : TypedType]: Rep[Option[T]] =
+    ??? //TODO
 }
 
 /** A scalar value that is known at the client side at the time a query is executed.
   * This is either a constant value (`LiteralColumn`) or a scalar parameter. */
 class ConstColumn[T : TypedType](val toNode: Node) extends Rep.TypedRep[T] {
   override def encodeRef(path: List[Symbol]): ConstColumn[T] = new ConstColumn[T](Path(path))
-}
-
-object ConstColumn extends RepColumnShapeImplicits {
-  /** A Shape for ConstColumns. It is identical to `columnShape` but it
-    * ensures that a `ConstColumn[T]` packs to itself, not just to
-    * `Column[T]`. This allows ConstColumns to be used as fully packed
-    * types when compiling query functions. */
-  @inline implicit def constColumnShape[T, Level <: ShapeLevel] = RepShape[Level, ConstColumn[T], T]
 }
 
 /** A column with a constant value which is inserted into an SQL statement as a literal. */

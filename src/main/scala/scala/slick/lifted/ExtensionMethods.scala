@@ -70,16 +70,12 @@ final class BaseColumnExtensionMethods[P1](val c: Rep[P1]) extends AnyVal with C
 }
 
 final class OptionColumnExtensionMethods[B1](val c: Rep[Option[B1]]) extends AnyVal with ColumnExtensionMethods[B1, Option[B1]] with OptionExtensionMethods[B1] {
-  def getOrElse(default: => B1): Rep[B1] =
-    Rep.forNode[B1](GetOrElse(c.toNode, () => default))(p1Type.asInstanceOf[OptionType].elementType.asInstanceOf[TypedType[B1]])
-  def get: Rep[B1] =
-    getOrElse { throw new SlickException("Read NULL value for column "+this) }
-  /** Check if this Option column is empty (i.e. the underlying value is NULL) */
-  def isEmpty = Library.==.column[Boolean](n, LiteralNode(null))
-  /** Check if this Option column is not empty (i.e. the underlying value is not NULL) */
-  def isDefined = Library.Not.column[Boolean](Library.==.typed[Boolean](n, LiteralNode(null)))
-  /** Check if this Option column is not empty (i.e. the underlying value is not NULL) */
-  def nonEmpty = isDefined
+  /** Get the value inside this Option, if it is non-empty, otherwise throw a SlickException. This
+    * operation is only allowed in places where it can be performed at the client side (e.g. not
+    * inside a subquery that cannot be fused), otherwise the exception is thrown during query
+    * compilation. */
+  def get: Rep[B1] = //TODO allow this for all Options, not just single columns
+    Rep.forNode[B1](GetOrElse(c.toNode, () => throw new SlickException("Read NULL value for column " + this)))(c.asInstanceOf[Typed].tpe.asInstanceOf[OptionType].elementType.asInstanceOf[TypedType[B1]])
 }
 
 /** Extension methods for numeric columns */
@@ -169,7 +165,37 @@ final class SingleColumnQueryExtensionMethods[B1, P1, C[_]](val q: Query[Rep[P1]
   def sum(implicit tm: OptionTM) = Library.Sum.column[Option[B1]](q.toNode)
 }
 
-trait ExtensionMethodConversions {
+/** Extension methods for Options of single- and multi-column values */
+final class AnyOptionExtensionMethods[O, P](val r: O) extends AnyVal {
+  /** Apply `f` to the value inside this Option, if it is non-empty, otherwise return `ifEmpty` */
+  def fold[B, BP](ifEmpty: B)(f: P => B)(implicit shape: Shape[FlatShapeLevel, B, _, BP]): BP = ??? //TODO
+
+  /** Transform the value inside this Option */
+  def map[Q, QO](f: P => Q)(implicit ol: OptionLift[Q, Rep[Option[QO]]]): Rep[Option[QO]] = ??? //TODO
+    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
+    //fold(Rep.None[QO])(p => Rep.Some(f(p)))(RepShape[FlatShapeLevel, QO, QO])
+
+  /** Get the value inside this Option, if it is non-empty, otherwise the supplied default */
+  def getOrElse[M, P2 <: P](default: M)(implicit shape: Shape[FlatShapeLevel, M, _, P2], ol: OptionLift[P2, O]): P = {
+    // P2 != P can only happen if M contains plain values, which pack to ConstColumn instead of Rep.
+    // Both have the same packedShape (RepShape), so we can safely cast here:
+    fold[P, P](shape.pack(default): P)(identity)(shape.packedShape.asInstanceOf[Shape[FlatShapeLevel, P, _, P]])
+    // old: Rep.forNode[B1](GetOrElse(c.toNode, () => default))(p1Type.asInstanceOf[OptionType].elementType.asInstanceOf[TypedType[B1]])
+  }
+
+  /** Check if this Option is empty */
+  def isEmpty: Rep[Boolean] = fold(LiteralColumn(true))(_ => LiteralColumn(false))
+    // old: Library.==.column[Boolean](n, LiteralNode(null))
+
+  /** Check if this Option is not empty */
+  def isDefined: Rep[Boolean] = fold(LiteralColumn(false))(_ => LiteralColumn(true))
+    // old: Library.Not.column[Boolean](Library.==.typed[Boolean](n, LiteralNode(null)))
+
+  /** Check if this Option is not empty */
+  def nonEmpty = isDefined
+}
+
+trait ExtensionMethodConversions extends ExtensionMethodConversionsLowPriority {
   implicit def columnExtensionMethods[B1 : BaseTypedType](c: Rep[B1]) = new BaseColumnExtensionMethods[B1](c)
   implicit def optionColumnExtensionMethods[B1 : BaseTypedType](c: Rep[Option[B1]]) = new OptionColumnExtensionMethods[B1](c)
   implicit def numericColumnExtensionMethods[B1](c: Rep[B1])(implicit tm: BaseTypedType[B1] with NumericTypedType) = new BaseNumericColumnExtensionMethods[B1](c)
@@ -185,4 +211,14 @@ trait ExtensionMethodConversions {
   implicit def anyOptionValueExtensionMethods[B1 : BaseTypedType](v: Option[B1]) = new AnyExtensionMethods(LiteralNode(implicitly[TypedType[Option[B1]]], v))
   implicit def singleColumnQueryExtensionMethods[B1 : BaseTypedType, C[_]](q: Query[Rep[B1], _, C]) = new SingleColumnQueryExtensionMethods[B1, B1, C](q)
   implicit def singleOptionColumnQueryExtensionMethods[B1 : BaseTypedType, C[_]](q: Query[Rep[Option[B1]], _, C]) = new SingleColumnQueryExtensionMethods[B1, Option[B1], C](q)
+
+  // Not possible on Scala 2.10 due to SI-3346
+  //implicit def anyOptionExtensionMethods[T, P](v: Rep[Option[T]])(implicit ol: OptionLift[P, Rep[Option[T]]]) = new AnyOptionExtensionMethods[Rep[Option[T]], P](v)
+
+  implicit def anyOptionRepExtensionMethods[T <: Rep[_]](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
+  implicit def anyBaseColumnRepExtensionMethods[T : TypedType](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], Rep[T]](v)
+}
+
+trait ExtensionMethodConversionsLowPriority {
+  implicit def anyOptionOtherExtensionMethods[T](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
 }
