@@ -554,35 +554,55 @@ final case class RangeFrom(start: Long = 1L) extends NullaryNode with TypedNode 
 }
 
 /** An if-then part of a Conditional node */
-final case class IfThen(val left: Node, val right: Node) extends BinaryNode with SimplyTypedNode {
+final case class IfThen(left: Node, right: Node) extends BinaryNode with SimplyTypedNode {
   type Self = IfThen
   protected[this] def nodeRebuild(left: Node, right: Node): Self = copy(left = left, right = right)
   protected def buildType = right.nodeType
+  override def nodeChildNames = Vector("if", "then")
 }
 
 /** A conditional expression; all clauses should be IfThen nodes */
-final case class ConditionalExpr(val clauses: IndexedSeq[Node], val elseClause: Node) extends SimplyTypedNode {
+final case class ConditionalExpr(clauses: IndexedSeq[Node], elseClause: Node) extends SimplyTypedNode {
   type Self = ConditionalExpr
-  val nodeChildren = elseClause +: clauses
-  override def nodeChildNames = "else" +: (1 to clauses.length).map(_.toString)
+  val nodeChildren = clauses :+ elseClause
+  override def nodeChildNames = (1 to clauses.length).map(_.toString) :+ "else"
   protected[this] def nodeRebuild(ch: IndexedSeq[Node]): Self =
-    copy(clauses = ch.tail, elseClause = ch.head)
+    copy(clauses = ch.init, elseClause = ch.last)
   protected def buildType = {
     val isNullable = nodeChildren.exists(ch =>
       ch.nodeType.isInstanceOf[OptionType] || ch.nodeType == ScalaBaseType.nullType)
-    val base = clauses.head.nodeType
+    val base = clauses.last.nodeType
     if(isNullable && !base.isInstanceOf[OptionType]) OptionType(base) else base
   }
   override def getDumpInfo = super.getDumpInfo.copy(mainInfo = "")
 }
 
-final case class OptionApply(val child: Node) extends UnaryNode with SimplyTypedNode {
+/** Lift a value into an Option as Some (or None if the value is a `null` column). */
+final case class OptionApply(child: Node) extends UnaryNode with SimplyTypedNode {
   type Self = OptionApply
   protected[this] def nodeRebuild(ch: Node) = copy(child = ch)
   protected def buildType = OptionType(nodeChildren.head.nodeType)
 }
 
-final case class GetOrElse(val child: Node, val default: () => Any) extends UnaryNode with SimplyTypedNode {
+/** The catamorphism of OptionType. */
+final case class OptionFold(from: Node, ifEmpty: Node, map: Node, gen: Symbol) extends DefNode {
+  type Self = OptionFold
+  def nodeChildren = IndexedSeq(from, ifEmpty, map)
+  def nodeGenerators = IndexedSeq((gen, from))
+  override def nodeChildNames = IndexedSeq("from "+gen, "ifEmpty", "map")
+  protected[this] def nodeRebuild(ch: IndexedSeq[Node]) = copy(ch(0), ch(1), ch(2))
+  protected[this] def nodeRebuildWithGenerators(gen: IndexedSeq[Symbol]) = copy(gen = gen(0))
+  protected[this] def nodeWithComputedType2(scope: SymbolScope, typeChildren: Boolean, retype: Boolean) = {
+    val from2 = from.nodeWithComputedType(scope, typeChildren, retype)
+    val ifEmpty2 = ifEmpty.nodeWithComputedType(scope, typeChildren, retype)
+    val genScope = scope + (gen -> from2.nodeType.asOptionType.elementType)
+    val map2 = map.nodeWithComputedType(genScope, typeChildren, retype)
+    nodeRebuildOrThis(IndexedSeq(from2, ifEmpty2, map2)).nodeTypedOrCopy(if(!nodeHasType || retype) map2.nodeType else nodeType)
+  }
+  override def getDumpInfo = super.getDumpInfo.copy(mainInfo = "")
+}
+
+final case class GetOrElse(child: Node, default: () => Any) extends UnaryNode with SimplyTypedNode {
   type Self = GetOrElse
   protected[this] def nodeRebuild(ch: Node) = copy(child = ch)
   protected def buildType = nodeChildren.head.nodeType.asOptionType.elementType
@@ -597,7 +617,7 @@ final case class CompiledStatement(statement: String, extra: Any, tpe: Type) ext
 }
 
 /** A client-side type mapping */
-final case class TypeMapping(val child: Node, val mapper: MappedScalaType.Mapper, classTag: ClassTag[_]) extends UnaryNode with SimplyTypedNode { self =>
+final case class TypeMapping(child: Node, mapper: MappedScalaType.Mapper, classTag: ClassTag[_]) extends UnaryNode with SimplyTypedNode { self =>
   type Self = TypeMapping
   def nodeRebuild(ch: Node) = copy(child = ch)
   override def getDumpInfo = super.getDumpInfo.copy(mainInfo = "")
@@ -605,7 +625,7 @@ final case class TypeMapping(val child: Node, val mapper: MappedScalaType.Mapper
 }
 
 /** A parameter from a QueryTemplate which gets turned into a bind variable. */
-final case class QueryParameter(extractor: (Any => Any), val tpe: Type) extends NullaryNode with TypedNode {
+final case class QueryParameter(extractor: (Any => Any), tpe: Type) extends NullaryNode with TypedNode {
   type Self = QueryParameter
   def nodeRebuild = copy()
   override def getDumpInfo = super.getDumpInfo.copy(mainInfo = extractor + "@" + System.identityHashCode(extractor))

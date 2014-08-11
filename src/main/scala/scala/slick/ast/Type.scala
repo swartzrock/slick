@@ -26,6 +26,12 @@ trait Type {
   def classTag: ClassTag[_]
 }
 
+object Type {
+  object Structural {
+    def unapply(t: Type): Some[Type] = Some(t.structural)
+  }
+}
+
 /** An atomic type (i.e. a type which does not contain other types) */
 trait AtomicType extends Type {
   final def mapChildren(f: Type => Type): this.type = this
@@ -65,6 +71,7 @@ object OptionType {
       else OptionType(e2)
     }
   }
+  def unapply(tpe: OptionType) = Some(tpe.elementType)
   private val classTag = mkClassTag[Option[_]]
 }
 

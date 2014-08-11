@@ -166,38 +166,42 @@ final class SingleColumnQueryExtensionMethods[B1, P1, C[_]](val q: Query[Rep[P1]
 }
 
 /** Extension methods for Options of single- and multi-column values */
-final class AnyOptionExtensionMethods[O, P](val r: O) extends AnyVal {
+final class AnyOptionExtensionMethods[O <: Rep[_], P](val r: O) extends AnyVal {
   /** Apply `f` to the value inside this Option, if it is non-empty, otherwise return `ifEmpty`. */
-  def fold[B, BP](ifEmpty: B)(f: P => B)(implicit shape: Shape[FlatShapeLevel, B, _, BP]): BP = ??? //TODO
-
-  /** Transform the value inside this Option */
-  def map[Q, QO](f: P => Q)(implicit ol: OptionLift[Q, Rep[Option[QO]]]): Rep[Option[QO]] = ??? //TODO
-    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
-    //fold(Rep.None[QO])(p => Rep.Some(f(p)))(RepShape[FlatShapeLevel, QO, QO])
+  def fold[B, BP](ifEmpty: B)(f: P => B)(implicit shape: Shape[FlatShapeLevel, B, _, BP]): BP = {
+    val gen = new AnonSymbol
+    val mapv = f(OptionLift.baseValue[P, O](r, Ref(gen)))
+    val n = OptionFold(r.toNode, shape.toNode(ifEmpty), shape.toNode(mapv), gen)
+    shape.packedShape.encodeRef(shape.pack(mapv), n).asInstanceOf[BP]
+  }
 
   /** Return the result of applying `f` to this Option's value if this Option is non-empty, otherwise None. */
-  def flatMap[QO](f: P => Rep[Option[QO]]): Rep[Option[QO]] = ??? //TODO
-    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
+  def flatMap[QO](f: P => Rep[Option[QO]]): Rep[Option[QO]] = {
+    // Has to be implemented directly with a Rep wrapping an OptionFold node because we can't create a None for arbitrary types
+    val gen = new AnonSymbol
+    val mapv = f(OptionLift.baseValue[P, O](r, Ref(gen)))
+    mapv.encodeRef(OptionFold(r.toNode, LiteralNode(ScalaBaseType.nullType.optionType, None), mapv.toNode, gen))
+  }
+
+  /** Transform the value inside this Option */
+  def map[Q, QO](f: P => Q)(implicit ol: OptionLift[Q, Rep[Option[QO]]]): Rep[Option[QO]] =
+    flatMap[QO](p => Rep.Some(f(p)))
 
   /** Flatten a nested Option. */
-  def flatten[QO](implicit ev: P <:< Rep[Option[QO]]): Rep[Option[QO]] = ??? //TODO
-    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
+  def flatten[QO](implicit ev: P <:< Rep[Option[QO]]): Rep[Option[QO]] =
+    flatMap[QO](identity)
 
   /** Get the value inside this Option, if it is non-empty, otherwise the supplied default. */
-  def getOrElse[M, P2 <: P](default: M)(implicit shape: Shape[FlatShapeLevel, M, _, P2], ol: OptionLift[P2, O]): P = {
+  def getOrElse[M, P2 <: P](default: M)(implicit shape: Shape[FlatShapeLevel, M, _, P2], ol: OptionLift[P2, O]): P =
     // P2 != P can only happen if M contains plain values, which pack to ConstColumn instead of Rep.
     // Both have the same packedShape (RepShape), so we can safely cast here:
     fold[P, P](shape.pack(default): P)(identity)(shape.packedShape.asInstanceOf[Shape[FlatShapeLevel, P, _, P]])
-    // old: Rep.forNode[B1](GetOrElse(c.toNode, () => default))(p1Type.asInstanceOf[OptionType].elementType.asInstanceOf[TypedType[B1]])
-  }
 
   /** Check if this Option is empty. */
   def isEmpty: Rep[Boolean] = fold(LiteralColumn(true))(_ => LiteralColumn(false))
-    // old: Library.==.column[Boolean](n, LiteralNode(null))
 
   /** Check if this Option is non-empty. */
   def isDefined: Rep[Boolean] = fold(LiteralColumn(false))(_ => LiteralColumn(true))
-    // old: Library.Not.column[Boolean](Library.==.typed[Boolean](n, LiteralNode(null)))
 
   /** Check if this Option is non-empty. */
   def nonEmpty = isDefined

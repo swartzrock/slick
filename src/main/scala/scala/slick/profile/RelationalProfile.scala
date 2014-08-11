@@ -161,11 +161,11 @@ trait RelationalTableComponent { driver: RelationalDriver =>
       new Rep.TypedRep[C] {
         override def toNode =
           Select((tableTag match {
-            case r: RefTag => Path(r.path)
+            case r: RefTag => r.path
             case _ => tableNode
           }), FieldSymbol(n)(options, tt)).nodeTyped(tt)
         override def toString = (tableTag match {
-          case r: RefTag => "(" + _tableName + " " + Path.toString(r.path) + ")"
+          case r: RefTag => "(" + _tableName + " " + r.path + ")"
           case _ => _tableName
         }) + "." + n
       }

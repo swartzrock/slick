@@ -289,6 +289,9 @@ class QueryInterpreter(db: HeapBackend#Database, params: Any) extends Logging {
           case t => (t.asInstanceOf[ScalaBaseType[Any]].ordering, false)
         }
         reduceOptionIt(it, opt, (a, b) => if(ord.gt(b, a)) b else a)
+      case Library.==(ch, LiteralNode(null)) =>
+        val chV = run(ch)
+        chV == null || chV.asInstanceOf[Option[_]].isEmpty
       case Apply(sym, ch) =>
         val chV = ch.map(n => (n.nodeType, run(n)))
         logDebug("[chV: "+chV.mkString(", ")+"]")
@@ -325,6 +328,8 @@ class QueryInterpreter(db: HeapBackend#Database, params: Any) extends Logging {
     case Library.% => args(0)._1.asInstanceOf[ScalaNumericType[Any]].numeric.asInstanceOf[Integral[Any]].rem(args(0)._2, args(1)._2)
     case Library.Abs => args(0)._1.asInstanceOf[ScalaNumericType[Any]].numeric.abs(args(0)._2)
     case Library.And => args(0)._2.asInstanceOf[Boolean] && args(1)._2.asInstanceOf[Boolean]
+    case Library.SilentCast if args(0)._1.isInstanceOf[OptionType] && args(0)._1.asInstanceOf[OptionType].elementType == retType =>
+      args(0)._2.asInstanceOf[Option[Any]].get
     case Library.Cast =>
       val v = args(0)._2
       (args(0)._1, retType) match {
