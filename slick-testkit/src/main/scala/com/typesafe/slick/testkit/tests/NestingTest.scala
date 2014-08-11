@@ -77,23 +77,25 @@ class NestingTest extends TestkitTest[RelationalTestDB] {
     xs.ddl.create
     xs ++= Seq((1, "1", Some("a")), (2, "2", Some("b")), (3, "3", None))
 
+    // Construct all kinds of Option Shapes
     implicitly[Shape[_, Rep[Int], _, _]]
     implicitly[Shape[_, Rep[Option[Int]], _, _]]
     implicitly[Shape[_, Rep[Option[Option[Int]]], _, _]]
-
     implicitly[Shape[_, Rep[Option[(Rep[Int], Rep[String])]], _, _]]
-
     implicitly[Shape[_, Rep[Option[X]], _, _]]
 
     // Construct all different kinds of Options
     def q1 = xs.map(t => Rep.Some(t))
+    def q1a2 = xs.map(t => Rep.Some(Rep.Some(t)))
     def q2 = xs.map(t => Rep.Some(t.a))
+    def q2a2 = xs.map(t => Rep.Some(Rep.Some(t.a)))
     def q3 = xs.map(t => t.c)
     def q4 = xs.map(t => Rep.Some(t.c))
     def q5 = xs.map(t => (t.c, Rep.Some(t.b)))
-
     def q1t: Query[Rep[Option[X]], _, Seq] = q1
+    def q1a2t: Query[Rep[Option[Option[X]]], _, Seq] = q1a2
     def q2t: Query[Rep[Option[Int]], _, Seq] = q2
+    def q2a2t: Query[Rep[Option[Option[Int]]], _, Seq] = q2a2
     def q3t: Query[Rep[Option[String]], _, Seq] = q3
     def q4t: Query[Rep[Option[Option[String]]], _, Seq] = q4
     def q5t: Query[(Rep[Option[String]], Rep[Option[String]]), _, Seq] = q5
@@ -103,13 +105,15 @@ class NestingTest extends TestkitTest[RelationalTestDB] {
     def q2b = q2.map(_.get)
     def q3b = q3.map(_.get)
     def q4b = q4.map(_.getOrElse(None: Option[String]))
-
     def q1bt: Query[(Rep[Int], Rep[String], Rep[Option[String]]), _, Seq] = q1b
     def q2bt: Query[Rep[Int], _, Seq] = q2b
     def q3bt: Query[Rep[String], _, Seq] = q3b
     def q4bt: Query[Rep[Option[String]], _, Seq] = q4b
 
     // Unpack result types
+    def r1: Seq[Option[(Int, String, Option[String])]] = q1.run
+    def r2: Seq[Option[Int]] = q2.run
+    def r3: Seq[Option[String]] = q3.run
     def r2b: Seq[Int] = q2b.run
     def r3b: Seq[String] = q3b.run
 
@@ -127,11 +131,33 @@ class NestingTest extends TestkitTest[RelationalTestDB] {
     }
     def q3d = q3.map(_.map(s => (s, s, 1)))
     def q4d = q4.map(_.map(_.get))
-
     def q1dt: Query[Rep[Option[Int]], _, Seq] = q1d
     def q1d2t: Query[Rep[Option[(Rep[Int], Rep[String], Rep[Option[String]])]], _, Seq] = q1d2
     def q2dt: Query[Rep[Option[Int]], _, Seq] = q2d
     def q3dt: Query[Rep[Option[(Rep[String], Rep[String], ConstColumn[Int])]], _, Seq] = q3d
     def q4dt: Query[Rep[Option[String]], _, Seq] = q4d
+
+    // Use Option.flatMap
+    def q1e1 = q1.map { to => to.flatMap { t => Rep.Some(t.b) }}
+    def q1e2 = q1.map { to => to.flatMap { t => t.c }}
+    def q1e3 = q1.map(to => Rep.Some(to)).map(_.flatMap(identity))
+    def q2e = q2.map { io => io.flatMap { i => Rep.Some(i) }}
+    def q1e1t: Query[Rep[Option[String]], _, Seq] = q1e1
+    def q1e2t: Query[Rep[Option[String]], _, Seq] = q1e2
+    def q2et: Query[Rep[Option[Int]], _, Seq] = q2e
+
+    // Use Option.flatten
+    def q1f1 = q1.map { to => Rep.Some(to) }
+    def q1f2 = q1.map { to => Rep.Some(to).flatten }
+    def q1f3 = q1.map { to => Rep.Some(to) }.map(_.flatten)
+    def q2f1 = q2.map { io => Rep.Some(io) }
+    def q2f2 = q2.map { io => Rep.Some(io).flatten }
+    def q2f3 = q2.map { io => Rep.Some(io) }.map(_.flatten)
+    def q1f1t: Query[Rep[Option[Option[X]]], _, Seq] = q1f1
+    def q1f2t: Query[Rep[Option[X]], _, Seq] = q1f2
+    def q1f3t: Query[Rep[Option[X]], _, Seq] = q1f3
+    def q2f1t: Query[Rep[Option[Option[Int]]], _, Seq] = q2f1
+    def q2f2t: Query[Rep[Option[Int]], _, Seq] = q2f2
+    def q2f3t: Query[Rep[Option[Int]], _, Seq] = q2f3
   }
 }

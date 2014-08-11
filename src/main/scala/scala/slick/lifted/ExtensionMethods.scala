@@ -167,7 +167,7 @@ final class SingleColumnQueryExtensionMethods[B1, P1, C[_]](val q: Query[Rep[P1]
 
 /** Extension methods for Options of single- and multi-column values */
 final class AnyOptionExtensionMethods[O, P](val r: O) extends AnyVal {
-  /** Apply `f` to the value inside this Option, if it is non-empty, otherwise return `ifEmpty` */
+  /** Apply `f` to the value inside this Option, if it is non-empty, otherwise return `ifEmpty`. */
   def fold[B, BP](ifEmpty: B)(f: P => B)(implicit shape: Shape[FlatShapeLevel, B, _, BP]): BP = ??? //TODO
 
   /** Transform the value inside this Option */
@@ -175,7 +175,15 @@ final class AnyOptionExtensionMethods[O, P](val r: O) extends AnyVal {
     // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
     //fold(Rep.None[QO])(p => Rep.Some(f(p)))(RepShape[FlatShapeLevel, QO, QO])
 
-  /** Get the value inside this Option, if it is non-empty, otherwise the supplied default */
+  /** Return the result of applying `f` to this Option's value if this Option is non-empty, otherwise None. */
+  def flatMap[QO](f: P => Rep[Option[QO]]): Rep[Option[QO]] = ??? //TODO
+    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
+
+  /** Flatten a nested Option. */
+  def flatten[QO](implicit ev: P <:< Rep[Option[QO]]): Rep[Option[QO]] = ??? //TODO
+    // Has to be implemented directly with a Rep wrapping a Fold node because we can't create a None for arbitrary types
+
+  /** Get the value inside this Option, if it is non-empty, otherwise the supplied default. */
   def getOrElse[M, P2 <: P](default: M)(implicit shape: Shape[FlatShapeLevel, M, _, P2], ol: OptionLift[P2, O]): P = {
     // P2 != P can only happen if M contains plain values, which pack to ConstColumn instead of Rep.
     // Both have the same packedShape (RepShape), so we can safely cast here:
@@ -183,15 +191,15 @@ final class AnyOptionExtensionMethods[O, P](val r: O) extends AnyVal {
     // old: Rep.forNode[B1](GetOrElse(c.toNode, () => default))(p1Type.asInstanceOf[OptionType].elementType.asInstanceOf[TypedType[B1]])
   }
 
-  /** Check if this Option is empty */
+  /** Check if this Option is empty. */
   def isEmpty: Rep[Boolean] = fold(LiteralColumn(true))(_ => LiteralColumn(false))
     // old: Library.==.column[Boolean](n, LiteralNode(null))
 
-  /** Check if this Option is not empty */
+  /** Check if this Option is non-empty. */
   def isDefined: Rep[Boolean] = fold(LiteralColumn(false))(_ => LiteralColumn(true))
     // old: Library.Not.column[Boolean](Library.==.typed[Boolean](n, LiteralNode(null)))
 
-  /** Check if this Option is not empty */
+  /** Check if this Option is non-empty. */
   def nonEmpty = isDefined
 }
 
@@ -215,10 +223,11 @@ trait ExtensionMethodConversions extends ExtensionMethodConversionsLowPriority {
   // Not possible on Scala 2.10 due to SI-3346
   //implicit def anyOptionExtensionMethods[T, P](v: Rep[Option[T]])(implicit ol: OptionLift[P, Rep[Option[T]]]) = new AnyOptionExtensionMethods[Rep[Option[T]], P](v)
 
-  implicit def anyOptionRepExtensionMethods[T <: Rep[_]](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
-  implicit def anyBaseColumnRepExtensionMethods[T : TypedType](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], Rep[T]](v)
+  implicit def repOptionExtensionMethods[T <: Rep[_]](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
+  implicit def baseColumnRepOptionExtensionMethods[T : TypedType](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], Rep[T]](v)
+  implicit def nestedOptionExtensionMethods[T](v: Rep[Option[Option[T]]]) = new AnyOptionExtensionMethods[Rep[Option[Option[T]]], Rep[Option[T]]](v)
 }
 
 trait ExtensionMethodConversionsLowPriority {
-  implicit def anyOptionOtherExtensionMethods[T](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
+  implicit def otherOptionExtensionMethods[T](v: Rep[Option[T]]) = new AnyOptionExtensionMethods[Rep[Option[T]], T](v)
 }
